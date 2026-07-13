@@ -220,6 +220,12 @@ while IFS= read -r -d '' f; do
   case "$ext_lc" in
     jpg|jpeg|png|heic)
       day=$(photo_day "$f")
+      fixdate=""
+      if [[ "${FIX_BOGUS_DATES:-1}" == "1" && "${day%%-*}" -lt "${BOGUS_YEAR_MIN:-2015}" ]]; then
+        # camera clock was reset (dead/removed battery) — use the import time
+        fixdate=$(date '+%Y:%m:%d %H:%M:%S')
+        day=$(date '+%Y-%m-%d')
+      fi
       destdir="$LIB/${day%%-*}/$day"
       mkdir -p "$destdir"
       dest=$(unique_dest "$f" "$destdir/$name")
@@ -229,12 +235,20 @@ while IFS= read -r -d '' f; do
         echo "$key" >> "$MANIFEST"; skipped=$((skipped+1)); continue
       fi
       cp -p "$f" "$dest" || { log "FAILED copy $f"; failed=$((failed+1)); continue; }
+      if [[ -n "$fixdate" && -x "$EXIFTOOL" ]]; then
+        "$EXIFTOOL" -q -overwrite_original "-AllDates=$fixdate" "$dest" 2>>"$LOG"
+        log "fixed bogus camera date on $name -> $fixdate"
+      fi
       batch_files+=("$dest")
       photos=$((photos+1))
       ;;
     mp4|avi|mpg|mov|mts|m2ts)
       thm=$(thm_for "$f")
       epoch=$(video_epoch "$f" "$thm")
+      vfix=0
+      if [[ "${FIX_BOGUS_DATES:-1}" == "1" && "$(date -r "$epoch" '+%Y')" -lt "${BOGUS_YEAR_MIN:-2015}" ]]; then
+        epoch=$(date +%s); vfix=1  # camera clock was reset — use the import time
+      fi
       day=$(date -r "$epoch" '+%Y-%m-%d')
       destdir="$LIB/${day%%-*}/$day"
       mkdir -p "$destdir"
@@ -268,10 +282,15 @@ while IFS= read -r -d '' f; do
           failed=$((failed+1))
           continue
         fi
-        # embed camera make/model + original date from the THM sidecar
+        # embed camera make/model (+ original date unless it was bogus) from the sidecar
         if [[ -n "$thm" && -x "$EXIFTOOL" ]]; then
-          "$EXIFTOOL" -q -overwrite_original -P -TagsFromFile "$thm" \
-            -Make -Model -DateTimeOriginal "$dest" 2>>"$LOG"
+          if [[ "$vfix" == "1" ]]; then
+            "$EXIFTOOL" -q -overwrite_original -P -TagsFromFile "$thm" \
+              -Make -Model "$dest" 2>>"$LOG"
+          else
+            "$EXIFTOOL" -q -overwrite_original -P -TagsFromFile "$thm" \
+              -Make -Model -DateTimeOriginal "$dest" 2>>"$LOG"
+          fi
         fi
         touch -t "$(date -r "$epoch" '+%Y%m%d%H%M.%S')" "$dest"
         log "transcoded $name ($codec -> h264, $(du -h "$dest" | cut -f1) from $(du -h "$f" | cut -f1))"

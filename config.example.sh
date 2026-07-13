@@ -17,3 +17,10 @@
 # Also import each batch into the Photos app (with iCloud Photos on, this
 # syncs to your iPhone with zero taps). 0 = off (default).
 #IMPORT_TO_PHOTOS=0
+
+# Cameras whose clock resets (dead/removed battery) stamp everything ~2012.
+# Dates before BOGUS_YEAR_MIN are replaced with the import time — folder AND
+# embedded metadata — so photos sort correctly. Set FIX_BOGUS_DATES=0 to keep
+# whatever the camera wrote.
+#FIX_BOGUS_DATES=1
+#BOGUS_YEAR_MIN=2015
