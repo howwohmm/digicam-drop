@@ -31,6 +31,9 @@ Pulls `ffmpeg` + `exiftool` via Homebrew, sets up the launchd agent. Done.
 DRIVE_FOLDER_ID=""        # Drive folder ID from its URL; empty = My Drive/Digicam
 EJECT_AFTER_IMPORT=eject  # eject | readonly (browsable, write-locked) | off
 IMPORT_TO_PHOTOS=0        # 1 = also import into Photos.app (iCloud sync)
+ASK_BEFORE_IMPORT=0       # 1 = confirm first (terminal y/N, or a dialog on
+                          # card insert; auto-cancels after 2 min). One-off:
+                          # ./digicam-import.sh --ask
 ```
 
 ## Ops

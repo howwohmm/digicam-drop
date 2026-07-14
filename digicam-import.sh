@@ -14,6 +14,9 @@
 #   digicam-import.sh            # scan /Volumes for a card with DCIM/
 #   digicam-import.sh /path/dir  # import a folder (card roots with DCIM/ scan
 #                                # only DCIM/MP_ROOT/PRIVATE; dot-dirs skipped)
+#   digicam-import.sh -i|--ask   # confirm before touching anything (terminal
+#                                # prompt, or a dialog when run by launchd);
+#                                # make it the default with ASK_BEFORE_IMPORT=1
 
 set -u
 
@@ -29,6 +32,10 @@ LOCK="/tmp/digicam-import.lock"
 # Set to 1 (here or in config.sh) to ALSO auto-import each batch into the
 # Photos app (with iCloud Photos on, that syncs to the iPhone with zero taps).
 IMPORT_TO_PHOTOS="${IMPORT_TO_PHOTOS:-0}"
+
+# Set to 1 (or pass -i/--ask) to confirm before running any operations.
+# Declining leaves the card mounted and completely untouched.
+ASK_BEFORE_IMPORT="${ASK_BEFORE_IMPORT:-0}"
 
 # Google Drive upload: the whole library is mirrored (new files only, never
 # deletes) into a Drive folder via the Google Drive desktop app's synced
@@ -81,6 +88,26 @@ notify() {
   /usr/bin/osascript -e "display notification \"$2\" with title \"$1\"" >/dev/null 2>&1
 }
 
+ask_confirm() {  # gate the run behind a yes/no when ASK_BEFORE_IMPORT=1
+  [[ "$ASK_BEFORE_IMPORT" == "1" ]] || return 0
+  local n msg reply
+  n=$(find "${scan_dirs[@]}" -name '.*' -prune -o -type f \
+        \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.heic' \
+           -o -iname '*.mp4' -o -iname '*.avi' -o -iname '*.mpg' -o -iname '*.mov' \
+           -o -iname '*.mts' -o -iname '*.m2ts' \) -print 2>/dev/null | wc -l | tr -d ' ')
+  msg="Import from $src ($n media files found) into $LIB?"
+  if [[ -t 0 && -t 1 ]]; then
+    read -r -p "$msg [y/N] " reply
+    [[ "$reply" == [Yy]* ]]
+  else
+    # headless (launchd card-insert run): ask with a dialog; treat 2 min of
+    # silence as "no" so an unattended Mac never imports unconfirmed
+    /usr/bin/osascript \
+      -e "display dialog \"$msg\" with title \"Digicam Drop\" buttons {\"Cancel\", \"Import\"} default button \"Import\" cancel button \"Cancel\" giving up after 120" \
+      -e 'if gave up of result then error number -128' >/dev/null 2>&1
+  fi
+}
+
 # What to do with the card once the import is done: eject (default),
 # readonly (keep it browsable but yank-safe), or off.
 EJECT_AFTER_IMPORT="${EJECT_AFTER_IMPORT:-eject}"
@@ -118,8 +145,16 @@ safe_release() {  # make the card yank-safe per EJECT_AFTER_IMPORT
   esac
 }
 
+# ---- args --------------------------------------------------------------------
+src=""
+for arg in "$@"; do
+  case "$arg" in
+    -i|--ask|--confirm) ASK_BEFORE_IMPORT=1 ;;
+    *) src="$arg" ;;
+  esac
+done
+
 # ---- find the source ---------------------------------------------------------
-src="${1:-}"
 scan_dirs=()
 if [[ -n "$src" ]]; then
   [[ -d "$src" ]] || { echo "no such directory: $src" >&2; exit 1; }
@@ -149,6 +184,12 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   exit 0
 fi
 trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+
+if ! ask_confirm; then
+  log "import declined by user for $src — nothing touched"
+  notify "Digicam Drop" "Import cancelled — card left untouched."
+  exit 0
+fi
 
 mkdir -p "$LIB" "$BATCHES"
 touch "$MANIFEST"
